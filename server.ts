@@ -1221,28 +1221,34 @@ app.post('/api/notifications/test', (req: Request, res: Response) => {
   res.json(notif);
 });
 
+// Static assets fallback (e.g. courier avatars and facility photos)
+app.use('/src/assets', express.static(path.resolve(__dirname, 'src/assets')));
+
 // Vite middleware in dev or static serve in prod
 async function startServer() {
-  if (process.env.NODE_ENV !== 'production') {
+  const distPath = path.resolve(__dirname, 'dist');
+  const hasDist = fs.existsSync(path.resolve(distPath, 'index.html'));
+  const isProduction = process.env.NODE_ENV === 'production' || (hasDist && process.env.NODE_ENV !== 'development');
+
+  if (isProduction && hasDist) {
+    console.log('[KirimKilat Server] ✅ Mode: PRODUCTION (Melayani folder dist/)');
+    app.use(express.static(distPath));
+    app.get('*', (_req: Request, res: Response) => {
+      res.sendFile(path.resolve(distPath, 'index.html'));
+    });
+  } else if (isProduction && !hasDist) {
+    console.warn('[KirimKilat Server] ⚠️ Mode: PRODUCTION tapi folder "dist" belum ada. Jalankan "npm run build" terlebih dahulu!');
+    app.get('*', (_req: Request, res: Response) => {
+      res.status(503).send('Aplikasi dalam mode produksi, tetapi folder "dist" belum dibuat. Silakan jalankan "npm run build" lalu restart PM2.');
+    });
+  } else {
+    console.log('[KirimKilat Server] 🛠️ Mode: DEVELOPMENT (Menggunakan Vite Middleware)');
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true, hmr: process.env.DISABLE_HMR !== 'true' },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
-    const distPath = path.resolve(__dirname, 'dist');
-    if (fs.existsSync(distPath)) {
-      app.use(express.static(distPath));
-      app.get('*', (_req: Request, res: Response) => {
-        res.sendFile(path.resolve(distPath, 'index.html'));
-      });
-    } else {
-      console.warn('[KirimKilat Server] ⚠️ Folder dist/ belum ada. Silakan jalankan `npm run build` terlebih dahulu.');
-      app.get('*', (_req: Request, res: Response) => {
-        res.status(503).send('Aplikasi dalam mode produksi, tetapi folder "dist" belum dibuat. Jalankan "npm run build" lalu restart PM2.');
-      });
-    }
   }
 
   app.listen(PORT, '0.0.0.0', () => {

@@ -99,26 +99,78 @@ pm2 startup
 
 ---
 
-## 6. Konfigurasi Nginx Reverse Proxy (Opsional untuk Domain/SSL)
+## 6. Solusi Error "MIME type (application/octet-stream) /src/main.tsx"
 
-Jika menggunakan Nginx sebagai reverse proxy ke port 3000:
+Jika di browser muncul pesan:
+> `Loading module from "https://kirim.sayuti.com/src/main.tsx" was blocked because of a disallowed MIME type ("application/octet-stream")`
 
+Penyebabnya adalah **browser menerima `index.html` mentah dari root folder proyek**, bukan `dist/index.html` hasil build. Hal ini terjadi karena salah satu dari 2 hal berikut:
+
+### Penyebab 1: Nginx Menunjuk ke Root Proyek (Bukan Proxy ke Express atau Bukan ke folder dist)
+Jika konfigurasi Nginx Anda memiliki:
+```nginx
+# ❌ SALAH (Menyajikan index.html mentah yang memanggil /src/main.tsx):
+root /path/to/project;
+try_files $uri $uri/ /index.html;
+```
+
+**✅ SOLUSI BENAR A (Gunakan Nginx Full Reverse Proxy ke Node.js):**
+Serahkan seluruh penyajian ke aplikasi Express (PM2):
 ```nginx
 server {
-    listen 80;
-    server_name kirimkilat.domainanda.com;
+    server_name kirim.sayuti.com;
 
     location / {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
         proxy_cache_bypass $http_upgrade;
-        
-        # Dukungan untuk SSE (Server-Sent Events) live GPS kurir
+
+        # Wajib untuk realtime Live GPS Kurir (SSE)
         proxy_buffering off;
         proxy_read_timeout 86400s;
     }
 }
+```
+
+**✅ SOLUSI BENAR B (Jika Nginx Menyajikan Static Langsung):**
+Arahkan root Nginx ke subfolder **`/dist`**, BUKAN root repositori:
+```nginx
+server {
+    server_name kirim.sayuti.com;
+    root /path/to/project/dist; # <-- Wajib berakhiran /dist
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # API dan SSE tetap diarahkan ke PM2 Node.js
+    location /api/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_buffering off;
+        proxy_read_timeout 86400s;
+    }
+}
+```
+
+### Penyebab 2: Belum Melakukan Build atau PM2 Belum Direstart
+Di terminal server/VPS Anda:
+```bash
+# 1. Hentikan proses lama
+pm2 stop all
+
+# 2. Jalankan build frontend
+npm run build
+
+# 3. Jalankan kembali dengan PM2
+npm run pm2:start
+
+# 4. Bersihkan cache browser (Ctrl + Shift + R di browser)
 ```
