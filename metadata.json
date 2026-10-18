@@ -1,0 +1,10 @@
+{
+  "name": "Remix LIMIT KirimKilat - Pelacakan Kurir Real-Time \u0026 Manajemen Invoice",
+  "description": "Aplikasi pengiriman paket percetakan dengan pelacakan kurir real-time di peta interaktif, manajemen manifes pesanan, status serah terima, dan dasbor analitik performa.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
