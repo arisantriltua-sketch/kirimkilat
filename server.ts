@@ -1237,6 +1237,11 @@ async function startServer() {
       app.get('*', (_req: Request, res: Response) => {
         res.sendFile(path.resolve(distPath, 'index.html'));
       });
+    } else {
+      console.warn('[KirimKilat Server] ⚠️ Folder dist/ belum ada. Silakan jalankan `npm run build` terlebih dahulu.');
+      app.get('*', (_req: Request, res: Response) => {
+        res.status(503).send('Aplikasi dalam mode produksi, tetapi folder "dist" belum dibuat. Jalankan "npm run build" lalu restart PM2.');
+      });
     }
   }
 
