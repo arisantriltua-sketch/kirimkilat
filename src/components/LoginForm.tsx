@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AppUser } from '../types';
-import { Package, Shield, User, Lock, ArrowRight, Truck, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Package, Shield, User, Lock, ArrowRight, Truck, AlertCircle, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import { playNotificationSound } from '../utils/audio';
 
 interface LoginFormProps {
@@ -11,6 +11,7 @@ interface LoginFormProps {
 export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess, onContinueAsGuest }) => {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('admin123');
+  const [showPassword, setShowPassword] = useState(false);
   const [selectedRoleType, setSelectedRoleType] = useState<'admin' | 'kurir'>('admin');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -157,13 +158,26 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess, onContinue
                   <Lock className="w-4 h-4" />
                 </div>
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Masukkan kata sandi"
-                  className="w-full pl-10 pr-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs font-medium placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                  className="w-full pl-10 pr-10 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs font-medium placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-white transition-colors cursor-pointer"
+                  title={showPassword ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi'}
+                  aria-label={showPassword ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi'}
+                >
+                  {showPassword ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
               </div>
             </div>
 

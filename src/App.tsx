@@ -11,7 +11,7 @@ import { CourierAnalyticsDashboard } from './components/CourierAnalyticsDashboar
 import { LoginForm } from './components/LoginForm';
 import { AppUser, Courier, Invoice, PushNotificationPayload, DatabaseStatus } from './types';
 import { playNotificationSound } from './utils/audio';
-import { Truck, Package, Clock, ShieldCheck, Database, RefreshCw, AlertCircle } from 'lucide-react';
+import { Truck, Package, Clock, ShieldCheck, Database, RefreshCw, AlertCircle, Search, Lock } from 'lucide-react';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<AppUser | null>(() => {
@@ -330,6 +330,44 @@ export default function App() {
     }
   };
 
+  // Strict Role-Based Access Control (RBAC) Guard for tab switching
+  const handleTabChange = useCallback((tab: 'map' | 'invoices' | 'courier' | 'tracking' | 'analytics' | 'database') => {
+    // 1. Guest (Tamu / Pelanggan): HANYA boleh mengakses 'tracking'
+    if (!currentUser) {
+      if (tab !== 'tracking') {
+        setIsLoginModalOpen(true);
+        return;
+      }
+      setActiveTab('tracking');
+      return;
+    }
+
+    // 2. Kurir: Boleh akses 'courier', 'map', dan 'tracking' (Dilarang akses keuangan & database)
+    if (currentUser.level === 'kurir') {
+      if (tab === 'invoices' || tab === 'analytics' || tab === 'database') {
+        return;
+      }
+    }
+
+    // 3. Admin: Akses penuh
+    if (tab === 'database') {
+      if (currentUser.level === 'admin') {
+        setIsDbModalOpen(true);
+      }
+    } else {
+      setActiveTab(tab);
+    }
+  }, [currentUser]);
+
+  // Enforce RBAC guard on activeTab whenever auth state changes
+  useEffect(() => {
+    if (!currentUser && activeTab !== 'tracking') {
+      setActiveTab('tracking');
+    } else if (currentUser?.level === 'kurir' && (activeTab === 'invoices' || activeTab === 'analytics' || activeTab === 'database')) {
+      setActiveTab('courier');
+    }
+  }, [currentUser, activeTab]);
+
   // Find active courier and invoice for map display
   const primaryCourier = couriers[0] || null;
   const activeInvoiceForCourier =
@@ -340,13 +378,7 @@ export default function App() {
       {/* Universal Top Bar Contract */}
       <Header
         activeTab={activeTab}
-        setActiveTab={(tab) => {
-          if (tab === 'database') {
-            setIsDbModalOpen(true);
-          } else {
-            setActiveTab(tab);
-          }
-        }}
+        setActiveTab={handleTabChange}
         unreadCount={notifications.filter((n) => !n.read).length}
         onOpenNotifications={() => setIsNotifDrawerOpen(true)}
         hasPushPermission={hasPushPermission}
@@ -369,72 +401,95 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
-        {/* Metric Summary Strip (Full width row) */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-            <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
-              <span>Total Invoice Aktif</span>
-              <Package className="w-4 h-4 text-indigo-600" />
+        {/* Metric Summary Strip - Visible ONLY to Logged-in Staff (Admin & Kurir) */}
+        {currentUser ? (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+              <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+                <span>Total Invoice Aktif</span>
+                <Package className="w-4 h-4 text-indigo-600" />
+              </div>
+              <div className="font-mono tabular-nums text-xl font-bold text-slate-900 mt-1">
+                {invoices.length}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1">
+                <span>{invoices.filter((i) => i.diambil === 1).length} Diambil</span>
+                <span className="mx-1">·</span>
+                <span>{invoices.filter((i) => i.diambil === 0).length} Menunggu</span>
+              </div>
             </div>
-            <div className="font-mono tabular-nums text-xl font-bold text-slate-900 mt-1">
-              {invoices.length}
+
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+              <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+                <span>Kurir Dalam Perjalanan</span>
+                <Truck className="w-4 h-4 text-emerald-600" />
+              </div>
+              <div className="font-mono tabular-nums text-xl font-bold text-slate-900 mt-1">
+                {couriers.filter((c) => c.status_aktif === 'mengantar').length}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1">
+                <span>{couriers.length} Kurir terdaftar di sistem</span>
+              </div>
             </div>
-            <div className="text-[11px] text-slate-500 mt-1">
-              <span>{invoices.filter((i) => i.diambil === 1).length} Diambil</span>
-              <span className="mx-1">·</span>
-              <span>{invoices.filter((i) => i.diambil === 0).length} Menunggu</span>
+
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+              <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+                <span>Paket Terkirim Hari Ini</span>
+                <ShieldCheck className="w-4 h-4 text-indigo-600" />
+              </div>
+              <div className="font-mono tabular-nums text-xl font-bold text-slate-900 mt-1">
+                {invoices.filter((i) => i.status_pengiriman === 'terkirim').length}
+              </div>
+              <div className="text-[11px] text-emerald-600 font-medium mt-1">
+                <span>Verifikasi bukti & tanda tangan</span>
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+              <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+                <span>Sistem Database POS</span>
+                <Database className="w-4 h-4 text-indigo-600" />
+              </div>
+              <div className="flex items-center gap-2 mt-1">
+                <span
+                  className={`w-2.5 h-2.5 rounded-full ${
+                    dbStatus?.connected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                  }`}
+                />
+                <span className="text-sm font-bold text-slate-900">
+                  {dbStatus?.connected ? 'Server Terhubung (Online)' : 'Mode Intranet Lokal'}
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1 truncate">
+                Sinkronisasi data transaksi kasir & logistik real-time
+              </div>
             </div>
           </div>
-
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-            <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
-              <span>Kurir Dalam Perjalanan</span>
-              <Truck className="w-4 h-4 text-emerald-600" />
+        ) : (
+          /* Public Guest Banner: Pelanggan Percetakan */
+          <div className="bg-gradient-to-r from-indigo-900 via-slate-900 to-indigo-950 rounded-2xl p-6 text-white shadow-md border border-indigo-800/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 mb-2">
+                <Search className="w-3.5 h-3.5" />
+                <span>Layanan Publik Percetakan Sayuti.Com</span>
+              </div>
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Pelacakan Paket & Resi Pengiriman</h1>
+              <p className="text-xs text-slate-300 mt-1 max-w-xl leading-relaxed">
+                Ketik nomor invoice atau ID sub-invoice cetakan Anda untuk melihat tahapan pengerjaan dan status serah terima kurir secara real-time.
+              </p>
             </div>
-            <div className="font-mono tabular-nums text-xl font-bold text-slate-900 mt-1">
-              {couriers.filter((c) => c.status_aktif === 'mengantar').length}
-            </div>
-            <div className="text-[11px] text-slate-500 mt-1">
-              <span>{couriers.length} Kurir terdaftar di sistem</span>
-            </div>
+            <button
+              onClick={() => setIsLoginModalOpen(true)}
+              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/30 flex items-center gap-2 shrink-0 cursor-pointer"
+            >
+              <Lock className="w-4 h-4" />
+              <span>Login Admin / Kurir</span>
+            </button>
           </div>
+        )}
 
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-            <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
-              <span>Paket Terkirim Hari Ini</span>
-              <ShieldCheck className="w-4 h-4 text-indigo-600" />
-            </div>
-            <div className="font-mono tabular-nums text-xl font-bold text-slate-900 mt-1">
-              {invoices.filter((i) => i.status_pengiriman === 'terkirim').length}
-            </div>
-            <div className="text-[11px] text-emerald-600 font-medium mt-1">
-              <span>Verifikasi bukti & tanda tangan</span>
-            </div>
-          </div>
-
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-            <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
-              <span>Sistem Database POS</span>
-              <Database className="w-4 h-4 text-indigo-600" />
-            </div>
-            <div className="flex items-center gap-2 mt-1">
-              <span
-                className={`w-2.5 h-2.5 rounded-full ${
-                  dbStatus?.connected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
-                }`}
-              />
-              <span className="text-sm font-bold text-slate-900">
-                {dbStatus?.connected ? 'Server Terhubung (Online)' : 'Mode Intranet Lokal'}
-              </span>
-            </div>
-            <div className="text-[11px] text-slate-500 mt-1 truncate">
-              Sinkronisasi data transaksi kasir & logistik real-time
-            </div>
-          </div>
-        </div>
-
-        {/* Tab 1: Live Interactive Map */}
-        {activeTab === 'map' && (
+        {/* Tab 1: Live Interactive Map (Admin & Kurir only) */}
+        {activeTab === 'map' && currentUser && (
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
@@ -449,7 +504,7 @@ export default function App() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => handleAdvanceStep(primaryCourier?.id || 1)}
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors flex items-center gap-1.5"
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>Update Posisi Kurir</span>
@@ -467,45 +522,49 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab 2: Invoices Data Grid */}
-        {activeTab === 'invoices' && (
+        {/* Tab 2: Invoices Data Grid (Admin only) */}
+        {activeTab === 'invoices' && currentUser?.level === 'admin' && (
           <InvoiceTable
             invoices={invoices}
             onSelectInvoice={(inv) => setSelectedInvoice(inv)}
             onToggleDiambil={handleToggleDiambil}
-            onTrackOnMap={(inv) => {
-              setActiveTab('map');
+            onTrackOnMap={() => {
+              handleTabChange('map');
             }}
           />
         )}
 
-        {/* Tab 3: Courier Operational App */}
-        {activeTab === 'courier' && (
+        {/* Tab 3: Courier Operational App (Admin & Kurir) */}
+        {activeTab === 'courier' && currentUser && (
           <CourierPortal
             couriers={couriers}
             invoices={invoices}
             onToggleDiambil={handleToggleDiambil}
             onUpdateStatus={handleUpdateStatus}
-            onSendCourierGps={(cId, lat, lng) => {
-              // handled via advance step or coordinates
-            }}
+            onSendCourierGps={() => {}}
             onAdvanceStep={handleAdvanceStep}
             onScanSubInvoice={handleScanSubInvoice}
             currentUser={currentUser}
           />
         )}
 
-        {/* Tab 4: Customer Tracking Resi */}
+        {/* Tab 4: Customer Tracking Resi (Public, Guest, Kurir, Admin) */}
         {activeTab === 'tracking' && (
           <CustomerTrackingView
             invoices={invoices}
             onSelectTrackInvoice={(inv) => setSelectedInvoice(inv)}
-            onOpenMap={() => setActiveTab('map')}
+            onOpenMap={() => {
+              if (currentUser) {
+                handleTabChange('map');
+              } else {
+                setIsLoginModalOpen(true);
+              }
+            }}
           />
         )}
 
-        {/* Tab 5: Courier Performance Analytics Dashboard */}
-        {activeTab === 'analytics' && (
+        {/* Tab 5: Courier Performance Analytics Dashboard (Admin only) */}
+        {activeTab === 'analytics' && currentUser?.level === 'admin' && (
           <CourierAnalyticsDashboard
             couriers={couriers}
             invoices={invoices}

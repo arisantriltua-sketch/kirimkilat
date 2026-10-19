@@ -6,8 +6,67 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 
 dotenv.config();
+
+// Multi-algorithm password verification supporting PHP password_hash (bcrypt), MD5, SHA1, SHA256, and Plaintext
+function verifyPassword(inputPassword: string, storedPassword: string | null | undefined): boolean {
+  if (!storedPassword || typeof storedPassword !== 'string') return false;
+
+  const rawStored = storedPassword.trim();
+  const rawInput = inputPassword.trim();
+
+  // 1. Plain text comparison
+  if (rawInput === rawStored) {
+    return true;
+  }
+
+  // 2. MD5 (32 hex characters)
+  const md5 = crypto.createHash('md5').update(rawInput).digest('hex');
+  if (rawStored.toLowerCase() === md5.toLowerCase()) {
+    return true;
+  }
+
+  // 3. SHA1 (40 hex characters)
+  const sha1 = crypto.createHash('sha1').update(rawInput).digest('hex');
+  if (rawStored.toLowerCase() === sha1.toLowerCase()) {
+    return true;
+  }
+
+  // 4. SHA256 (64 hex characters)
+  const sha256 = crypto.createHash('sha256').update(rawInput).digest('hex');
+  if (rawStored.toLowerCase() === sha256.toLowerCase()) {
+    return true;
+  }
+
+  // 5. Bcrypt ($2y$, $2a$, $2b$) - standard PHP password_hash format
+  if (
+    rawStored.startsWith('$2a$') ||
+    rawStored.startsWith('$2b$') ||
+    rawStored.startsWith('$2y$')
+  ) {
+    try {
+      const normalized = rawStored.replace(/^\$2y\$/, '$2a$');
+      if (bcrypt.compareSync(rawInput, normalized)) {
+        return true;
+      }
+    } catch (e) {
+      console.warn('[Auth] Bcrypt verify exception:', e);
+    }
+  }
+
+  // 6. MySQL old/new PASSWORD() format (e.g. *HEX...)
+  if (rawStored.startsWith('*') && rawStored.length === 41) {
+    const stage1 = crypto.createHash('sha1').update(rawInput).digest();
+    const stage2 = crypto.createHash('sha1').update(stage1).digest('hex');
+    if (rawStored.toUpperCase() === ('*' + stage2).toUpperCase()) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -391,60 +450,90 @@ initMySqlConnection();
 app.post('/api/auth/login', async (req: Request, res: Response) => {
   const { username, password } = req.body;
   if (!username || !password) {
-    return res.status(400).json({ error: 'Username dan password wajib diisi' });
+    return res.status(400).json({ error: 'Username dan password wajib diisi.' });
   }
 
-  const cleanUser = username.trim();
-  const cleanPass = password.trim();
+  const cleanUser = String(username).trim();
+  const cleanPass = String(password).trim();
 
   try {
-    if (isMySqlConnected && mysqlPool) {
-      try {
-        const [rows] = await mysqlPool.query<mysql.RowDataPacket[]>(
-          `SELECT id_user, username, password, nama, level, no_hp, foto FROM \`user\` WHERE LOWER(username) = LOWER(?) LIMIT 1`,
-          [cleanUser]
-        );
-
-        if (Array.isArray(rows) && rows.length > 0) {
-          const u = rows[0];
-          const md5Pass = crypto.createHash('md5').update(cleanPass).digest('hex');
-
-          // Check password match: MD5 or plain text
-          const isMatched =
-            u.password === md5Pass ||
-            u.password === cleanPass ||
-            (u.password && u.password.startsWith('$2y$') && cleanPass === 'admin123'); // bcrypt fallback
-
-          if (isMatched) {
-            const isKurir = u.level === 'kurir';
-            const courierData = isKurir ? activeCouriers.find((c) => c.id === u.id_user || c.nama.toLowerCase() === u.nama.toLowerCase()) : null;
-
-            return res.json({
-              success: true,
-              message: `Login berhasil sebagai ${isKurir ? 'Kurir' : 'Administrator'} (${u.nama})!`,
-              user: {
-                id: u.id_user,
-                username: u.username,
-                nama: u.nama,
-                level: isKurir ? 'kurir' : 'admin',
-                id_kurir: isKurir ? u.id_user : null,
-                no_hp: u.no_hp || '-',
-                foto: courierData?.foto || '/src/assets/images/courier_rider_avatar_1792303374167.jpg',
-              },
-            });
-          }
-        }
-      } catch (dbErr: unknown) {
-        const err = dbErr as Error;
-        console.warn('[Login] Database check notice:', err.message);
-      }
+    // Attempt database reconnection if pool is not active
+    if (!isMySqlConnected || !mysqlPool) {
+      await initMySqlConnection();
     }
 
-    // Fallback authentication for registered demo accounts if database is offline or matching default demo credentials
-    if (cleanUser === 'admin' && (cleanPass === 'admin123' || cleanPass === 'admin')) {
+    if (isMySqlConnected && mysqlPool) {
+      let rows: mysql.RowDataPacket[] = [];
+      try {
+        const [resUser] = await mysqlPool.query<mysql.RowDataPacket[]>(
+          `SELECT * FROM \`user\` WHERE LOWER(username) = LOWER(?) OR LOWER(nama) = LOWER(?) LIMIT 1`,
+          [cleanUser, cleanUser]
+        );
+        rows = resUser;
+      } catch (err1) {
+        // Fallback if table name is 'users'
+        try {
+          const [resUsers] = await mysqlPool.query<mysql.RowDataPacket[]>(
+            `SELECT * FROM \`users\` WHERE LOWER(username) = LOWER(?) OR LOWER(nama) = LOWER(?) LIMIT 1`,
+            [cleanUser, cleanUser]
+          );
+          rows = resUsers;
+        } catch (err2) {
+          console.error('[Login DB Error] Query failed on user/users table:', err1, err2);
+        }
+      }
+
+      if (Array.isArray(rows) && rows.length > 0) {
+        const u = rows[0];
+        const storedPassword = u.password || u.pass || u.passwd || u.user_password || u.kunci;
+        const userId = Number(u.id_user || u.id || u.user_id) || 1;
+        const userName = u.username || u.user_name || cleanUser;
+        const fullName = u.nama || u.name || u.nama_lengkap || userName;
+        const rawLevel = String(u.level || u.role || u.tipe || 'admin').toLowerCase();
+        const isKurir = rawLevel === 'kurir';
+        const userPhone = u.no_hp || u.phone || u.telepon || u.hp || '-';
+        const userPhoto = u.foto || u.avatar || '/src/assets/images/courier_rider_avatar_1792303374167.jpg';
+
+        const isMatched = verifyPassword(cleanPass, storedPassword);
+
+        if (isMatched) {
+          const courierData = isKurir
+            ? activeCouriers.find((c) => c.id === userId || c.nama.toLowerCase() === fullName.toLowerCase())
+            : null;
+
+          console.log(`[Auth] ✅ User '${userName}' (${fullName}, level: ${rawLevel}) logged in successfully from MySQL database.`);
+
+          return res.json({
+            success: true,
+            message: `Login berhasil sebagai ${isKurir ? 'Kurir' : 'Administrator'} (${fullName})!`,
+            user: {
+              id: userId,
+              username: userName,
+              nama: fullName,
+              level: isKurir ? 'kurir' : 'admin',
+              id_kurir: isKurir ? userId : null,
+              no_hp: userPhone,
+              foto: courierData?.foto || userPhoto,
+            },
+          });
+        } else {
+          console.warn(`[Auth] ❌ Password mismatch for database user '${cleanUser}'.`);
+          return res.status(401).json({
+            error: 'Kata sandi tidak sesuai! Pastikan password Anda sesuai dengan akun yang terdaftar di database.',
+          });
+        }
+      } else {
+        console.warn(`[Auth] ⚠️ User '${cleanUser}' not found in database table 'user'.`);
+      }
+    } else {
+      console.warn(`[Auth] Database offline during login attempt for '${cleanUser}'. Message: ${dbConnectionMessage}`);
+    }
+
+    // Fallback for demo credentials if database is offline or matching default demo credentials
+    if (cleanUser.toLowerCase() === 'admin' && (cleanPass === 'admin123' || cleanPass === 'admin')) {
       return res.json({
         success: true,
-        message: 'Login berhasil sebagai Administrator (Ahmad Sayuti)!',
+        message: 'Login berhasil sebagai Administrator Default (Ahmad Sayuti)!',
         user: {
           id: 2,
           username: 'admin',
@@ -457,7 +546,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
       });
     }
 
-    if (cleanUser === 'jaja' && (cleanPass === 'kurir123' || cleanPass === 'jaja')) {
+    if (cleanUser.toLowerCase() === 'jaja' && (cleanPass === 'kurir123' || cleanPass === 'jaja')) {
       return res.json({
         success: true,
         message: 'Login berhasil sebagai Kurir Lapangan (Jaja)!',
@@ -473,12 +562,19 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
       });
     }
 
+    if (!isMySqlConnected) {
+      return res.status(401).json({
+        error: `Database MySQL belum terhubung (${dbConnectionMessage}). Periksa kredensial database di file .env server Anda.`,
+      });
+    }
+
     return res.status(401).json({
-      error: 'Username atau password tidak cocok! Pastikan akun terdaftar di sistem database.',
+      error: `Username "${cleanUser}" tidak ditemukan di database percetakan. Periksa kembali username Anda.`,
     });
-  } catch (err) {
-    console.error('Error during login:', err);
-    return res.status(500).json({ error: 'Gagal melakukan verifikasi login ke database' });
+  } catch (err: unknown) {
+    const error = err as Error;
+    console.error('Error during login:', error);
+    return res.status(500).json({ error: `Gagal melakukan verifikasi login: ${error.message}` });
   }
 });
 
@@ -486,18 +582,32 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
 app.get('/api/auth/users', async (_req: Request, res: Response) => {
   if (isMySqlConnected && mysqlPool) {
     try {
-      const [rows] = await mysqlPool.query<mysql.RowDataPacket[]>(
-        `SELECT id_user, username, nama, level, no_hp FROM \`user\` WHERE level = 'kurir' OR level = 'admin' LIMIT 20`
-      );
+      let rows: mysql.RowDataPacket[] = [];
+      try {
+        const [r] = await mysqlPool.query<mysql.RowDataPacket[]>(
+          `SELECT * FROM \`user\` WHERE level = 'kurir' OR level = 'admin' LIMIT 20`
+        );
+        rows = r;
+      } catch {
+        try {
+          const [r2] = await mysqlPool.query<mysql.RowDataPacket[]>(
+            `SELECT * FROM \`users\` WHERE level = 'kurir' OR level = 'admin' LIMIT 20`
+          );
+          rows = r2;
+        } catch {
+          // ignore
+        }
+      }
+
       if (Array.isArray(rows) && rows.length > 0) {
         return res.json(
           rows.map((u) => ({
-            id: u.id_user,
-            username: u.username,
-            nama: u.nama,
-            level: u.level === 'kurir' ? 'kurir' : 'admin',
-            id_kurir: u.level === 'kurir' ? u.id_user : null,
-            no_hp: u.no_hp,
+            id: Number(u.id_user || u.id || u.user_id) || 1,
+            username: u.username || u.user_name || 'user',
+            nama: u.nama || u.name || u.username || 'User',
+            level: String(u.level || u.role || 'admin').toLowerCase() === 'kurir' ? 'kurir' : 'admin',
+            id_kurir: String(u.level || u.role || '').toLowerCase() === 'kurir' ? Number(u.id_user || u.id) : null,
+            no_hp: u.no_hp || u.phone || u.telepon || '-',
           }))
         );
       }
