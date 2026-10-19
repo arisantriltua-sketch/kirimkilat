@@ -402,7 +402,7 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
         {/* Metric Summary Strip - Visible ONLY to Logged-in Staff (Admin & Kurir) */}
-        {currentUser ? (
+        {currentUser && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
               <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
@@ -464,27 +464,6 @@ export default function App() {
                 Sinkronisasi data transaksi kasir & logistik real-time
               </div>
             </div>
-          </div>
-        ) : (
-          /* Public Guest Banner: Pelanggan Percetakan */
-          <div className="bg-gradient-to-r from-indigo-900 via-slate-900 to-indigo-950 rounded-2xl p-6 text-white shadow-md border border-indigo-800/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div>
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 mb-2">
-                <Search className="w-3.5 h-3.5" />
-                <span>Layanan Publik Percetakan Sayuti.Com</span>
-              </div>
-              <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Pelacakan Paket & Resi Pengiriman</h1>
-              <p className="text-xs text-slate-300 mt-1 max-w-xl leading-relaxed">
-                Ketik nomor invoice atau ID sub-invoice cetakan Anda untuk melihat tahapan pengerjaan dan status serah terima kurir secara real-time.
-              </p>
-            </div>
-            <button
-              onClick={() => setIsLoginModalOpen(true)}
-              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/30 flex items-center gap-2 shrink-0 cursor-pointer"
-            >
-              <Lock className="w-4 h-4" />
-              <span>Login Admin / Kurir</span>
-            </button>
           </div>
         )}
 
@@ -552,6 +531,8 @@ export default function App() {
         {activeTab === 'tracking' && (
           <CustomerTrackingView
             invoices={invoices}
+            currentUser={currentUser}
+            onOpenLogin={() => setIsLoginModalOpen(true)}
             onSelectTrackInvoice={(inv) => setSelectedInvoice(inv)}
             onOpenMap={() => {
               if (currentUser) {
