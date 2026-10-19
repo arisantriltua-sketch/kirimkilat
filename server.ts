@@ -1,4 +1,5 @@
-import express, { Request, Response } from 'express';
+import express from 'express';
+import type { Request, Response } from 'express';
 import mysql from 'mysql2/promise';
 import dotenv from 'dotenv';
 import path from 'path';
