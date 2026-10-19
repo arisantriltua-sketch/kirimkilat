@@ -14,14 +14,35 @@ import { playNotificationSound } from './utils/audio';
 import { Truck, Package, Clock, ShieldCheck, Database, RefreshCw, AlertCircle } from 'lucide-react';
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState<AppUser | null>({
-    id: 1,
-    username: 'admin',
-    nama: 'Administrator Percetakan',
-    level: 'admin',
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('kirimkilat_user');
+        if (saved) {
+          return JSON.parse(saved);
+        }
+      } catch (e) {
+        console.error('Failed to parse saved user session:', e);
+      }
+    }
+    return null;
   });
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'map' | 'invoices' | 'courier' | 'tracking' | 'analytics' | 'database'>('map');
+  const [isGuestMode, setIsGuestMode] = useState(false);
+  const [activeTab, setActiveTab] = useState<'map' | 'invoices' | 'courier' | 'tracking' | 'analytics' | 'database'>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('kirimkilat_user');
+        if (saved) {
+          const user = JSON.parse(saved);
+          if (user?.level === 'kurir') return 'courier';
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return 'map';
+  });
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [couriers, setCouriers] = useState<Courier[]>([]);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
@@ -333,10 +354,17 @@ export default function App() {
         isDbConnected={!!dbStatus?.connected}
         currentUser={currentUser}
         onLogout={() => {
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('kirimkilat_user');
+          }
           setCurrentUser(null);
+          setIsGuestMode(false);
           setIsLoginModalOpen(true);
         }}
-        onOpenLogin={() => setIsLoginModalOpen(true)}
+        onOpenLogin={() => {
+          setIsGuestMode(false);
+          setIsLoginModalOpen(true);
+        }}
       />
 
       {/* Main Content Area */}
@@ -516,11 +544,15 @@ export default function App() {
       )}
 
       {/* Login Form Modal (Admin & Kurir level='kurir') */}
-      {(isLoginModalOpen || !currentUser) && (
+      {(isLoginModalOpen || (!currentUser && !isGuestMode)) && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <LoginForm
             onLoginSuccess={(user) => {
               setCurrentUser(user);
+              setIsGuestMode(false);
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('kirimkilat_user', JSON.stringify(user));
+              }
               setIsLoginModalOpen(false);
               if (user.level === 'kurir') {
                 setActiveTab('courier');
@@ -529,7 +561,9 @@ export default function App() {
               }
             }}
             onContinueAsGuest={() => {
+              setIsGuestMode(true);
               setIsLoginModalOpen(false);
+              setActiveTab('tracking');
             }}
           />
         </div>
