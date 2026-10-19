@@ -174,3 +174,59 @@ npm run pm2:start
 
 # 4. Bersihkan cache browser (Ctrl + Shift + R di browser)
 ```
+
+---
+
+## 7. Panduan Khusus aaPanel & Solusi 502 Bad Gateway
+
+Jika di browser muncul pesan **502 Bad Gateway** saat mengakses domain di aaPanel, ikuti 3 langkah diagnosa dan perbaikan berikut:
+
+### Langkah 1: Uji apakah Server Node.js di Port 3000 benar-benar Hidup
+Buka **Terminal** di aaPanel, lalu ketik:
+```bash
+curl -I http://127.0.0.1:3000
+```
+- **Jika hasilnya `Connection refused`**: Berarti aplikasi Node.js Anda TIDAK aktif atau crash saat booting. Lanjut ke **Langkah 2**.
+- **Jika hasilnya `HTTP/1.1 200 OK`**: Berarti Node.js sudah aktif, masalah ada pada pengaturan Reverse Proxy aaPanel. Lanjut ke **Langkah 3**.
+
+---
+
+### Langkah 2: Jika `Connection refused` (Node.js Mati / Crash)
+Biasanya aplikasi crash karena dependensi `tsx` belum terpasang atau salah perintah run.
+Lakukan ini di folder proyek (`/www/wwwroot/kirim.sayuti.com`):
+```bash
+cd /www/wwwroot/kirim.sayuti.com
+
+# 1. Pastikan seluruh dependensi (termasuk tsx) terpasang
+npm install
+
+# 2. Build frontend
+npm run build
+
+# 3. Hapus proses lama di PM2 agar bersih
+pm2 delete all
+
+# 4. Jalankan ulang dengan npm start
+pm2 start npm --name "kirimkilat" -- start
+
+# 5. Cek log apakah ada error MySQL atau runtime
+pm2 logs kirimkilat --lines 20
+```
+
+---
+
+### Langkah 3: Pengaturan Reverse Proxy yang Benar di aaPanel
+Buka menu **Website** di aaPanel -> Klik domain Anda (`kirim.sayuti.com`) -> Pilih tab **Reverse proxy** -> **Add reverse proxy**:
+
+1. **Proxy name**: `node` (atau nama bebas)
+2. **Target URL**: `http://127.0.0.1:3000`  
+   *(⚠️ PENTING: Gunakan `127.0.0.1`, JANGAN ketik `localhost` karena aaPanel sering mengarahkannya ke IPv6 `::1` sehingga 502 Bad Gateway! JANGAN gunakan IP publik VPS).*
+3. **Sent Domain**: `$host`
+4. Centang **Advanced**:
+   Pastikan konfigurasi mematikan buffering untuk realtime GPS kurir:
+   ```nginx
+   proxy_buffering off;
+   proxy_read_timeout 86400s;
+   ```
+5. Klik **Save**.
+
